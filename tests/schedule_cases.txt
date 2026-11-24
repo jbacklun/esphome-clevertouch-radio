@@ -1,0 +1,80 @@
+# Schedule texts and what both parsers (parse_schedule() in C++, schedule() +
+# _apply_unit() in __init__.py) must make of them. Read by test_logic.cpp and
+# test_config.py, so the two can't drift apart.
+#
+#   unit | schedule text | ok | number of switch points a week
+#   unit | schedule text | error
+
+# Valid
+C|mon-fri 07:00 eco 18:15 comfort; sat,sun 07:00/17.5 16:00/comfort|ok|14
+C|daily 07:00 eco 21:00 comfort|ok|14
+C|all 06:00 off|ok|7
+C|mon 7:00 20|ok|1
+C|fri-mon 08:00 off|ok|4
+C|MON 07:00 ECO|ok|1
+C|mon 07:00 reduced|ok|1
+C|mon 00:00 5 23:59 30|ok|2
+C|mon 07:00 20.5; tue 07:00 21|ok|2
+C|daily 00:00 20 02:00 21 04:00 20 06:00 21 08:00 20 10:00 21 12:00 20 14:00 21 16:00 20 18:00 21 20:00 20 22:00 21|ok|84
+
+# Days
+C|mon,,tue 07:00 20|error
+C|xyz 07:00 20|error
+C|mon-xyz 07:00 20|error
+C|mon-tue-wed 07:00 20|error
+
+# Times
+C|mon 7:5 20|error
+C|mon 24:00 20|error
+C|mon 07:60 20|error
+C|mon 007:00 20|error
+C|mon 07:00|error
+C|mon 07:00 20 08:00|error
+
+# Temperatures
+C|mon 07:00 0x14|error
+C|mon 07:00 nan|error
+C|mon 07:00 1e1|error
+C|mon 07:00 20.|error
+C|mon 07:00 .5|error
+C|mon 07:00 -5|error
+C|mon 07:00 4.5|error
+C|mon 07:00 30.5|error
+C|mon 07:00 warm|error
+
+# Two temperatures at the same time; too many points
+C|mon 07:00 20 07:00 21|error
+C|mon 07:00 20; mon-tue 07:00 21|error
+C|daily 00:00 20 02:00 21 04:00 20 06:00 21 08:00 20 10:00 21 12:00 20 14:00 21 16:00 20 18:00 21 20:00 20 22:00 21 23:00 20|error
+
+# 12-hour times (always accepted, whatever time_format shows)
+C|mon 7:00am eco 6:15pm comfort|ok|2
+C|MON 07:00AM ECO 06:15PM COMFORT|ok|2
+C|mon 12:00am 20 12:00pm 21 12:59pm 20 11:59pm 21|ok|4
+C|mon 07:00 20 7:00am 21|error
+C|mon 6:15pm 20 18:15 21|error
+C|mon 0:00am 20|error
+C|mon 13:00pm 20|error
+C|mon 7:5pm 20|error
+C|mon 6:15 pm eco|error
+C|mon 7:00xm 20|error
+
+# Characters that look right but aren't: non-breaking and thin spaces, other digits
+C|mon 07:00 comfort|error
+C|mon 07:00 comfort|error
+C|mon ٠٧:00 comfort|error
+C|mon 07:00 ٢١|error
+C|mon 07:00comfort|error
+
+# At most 16 switch points a day
+C|mon 00:00 20 01:00 21 02:00 20 03:00 21 04:00 20 05:00 21 06:00 20 07:00 21 08:00 20 09:00 21 10:00 20 11:00 21 12:00 20 13:00 21 14:00 20 15:00 21|ok|16
+C|mon 00:00 20 01:00 21 02:00 20 03:00 21 04:00 20 05:00 21 06:00 20 07:00 21 08:00 20 09:00 21 10:00 20 11:00 21 12:00 20 13:00 21 14:00 20 15:00 21 16:00 20|error
+
+# Fahrenheit
+F|mon 07:00 68 21:00 comfort|ok|2
+F|mon 07:00 41|ok|1
+F|mon 07:00 86|ok|1
+F|mon 07:00 69.5|ok|1
+F|mon 07:00 40|error
+F|mon 07:00 87|error
+F|mon 07:00 20|error

@@ -1,0 +1,153 @@
+blueprint:
+  name: Radiator week schedule from a Schedule helper
+  description: >-
+    Edit a radiator's week schedule (clevertouch_radio ESPHome component) with a Home
+    Assistant Schedule helper. The helper is only the editor: this automation
+    writes it into the radiator's "Schedule Monday" ... "Schedule Sunday" texts,
+    and the ESP runs the schedule itself, also without Home Assistant.
+
+
+    In the helper: a block without data is the block level (default comfort);
+    a block with additional data `temperature: 18` is 18 degrees (in the
+    component's temperature_unit, C by default), with
+    `preset: eco` (or comfort, off) that level. Time outside the blocks is the
+    gap level (default eco). A block running to midnight continues into a block
+    starting at 00:00 the next day.
+
+
+    The helper is the master: changes typed into the day texts are replaced by
+    the helper's schedule within 5 minutes.
+  domain: automation
+  input:
+    schedule_helper:
+      name: Schedule helper
+      selector:
+        entity:
+          filter:
+            - domain: schedule
+    radiator:
+      name: Radiator
+      description: The radiator's device (an ESPHome sub-device with the climate entity).
+      selector:
+        device:
+          filter:
+            - integration: esphome
+          entity:
+            - domain: climate
+    block_level:
+      name: Level inside blocks without data
+      default: comfort
+      selector:
+        select:
+          options: [comfort, eco, "off"]
+    gap_level:
+      name: Level outside the blocks
+      default: eco
+      selector:
+        select:
+          options: [eco, comfort, "off"]
+    time_format:
+      name: Time format
+      description: The component's time_format (24h unless set to 12h in the ESP's YAML).
+      default: 24h
+      selector:
+        select:
+          options: [24h, 12h]
+
+mode: queued
+max: 3
+
+triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id: !input schedule_helper
+  # Editing a helper doesn't change its state, so check every 5 minutes; only
+  # changed days are written.
+  - trigger: time_pattern
+    minutes: "/5"
+
+variables:
+  helper: !input schedule_helper
+  radiator: !input radiator
+  block_level: !input block_level
+  gap: !input gap_level
+  tf: !input time_format
+  day_entities: >-
+    {%- set ents = device_entities(radiator) -%}
+    {%- set ns = namespace(out=[]) -%}
+    {%- for d in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
+      {%- set ns.out = ns.out + [ents | select('search', '^text\..*_schedule_' ~ d ~ '$') | first | default('')] -%}
+    {%- endfor -%}
+    {{ ns.out | tojson }}
+
+actions:
+  - condition: template
+    value_template: "{{ day_entities | select | list | count == 7 }}"
+  - action: schedule.get_schedule
+    target:
+      entity_id: "{{ helper }}"
+    response_variable: resp
+  - variables:
+      day_texts: >-
+        {%- set sched = resp[helper] -%}
+        {%- set days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
+        {%- set ns = namespace(raw=[], out=[], prev='') -%}
+        {%- for d in days -%}
+          {%- set day = namespace(pts=[['00:00', gap]]) -%}
+          {%- for b in (sched[d] | default([])) | sort(attribute='from') -%}
+            {%- set data = b.data if b.data is defined and b.data is mapping else {} -%}
+            {%- if data.temperature is defined -%}
+              {%- set t = ((data.temperature | float(0)) * 2) | round / 2 -%}
+              {%- set lvl = ('%d' % t) if t == (t | int) else ('%d.5' % (t | int)) -%}
+            {%- elif data.preset is defined -%}
+              {%- set lvl = 'eco' if (data.preset | lower) == 'reduced' else (data.preset | lower) -%}
+            {%- else -%}
+              {%- set lvl = block_level -%}
+            {%- endif -%}
+            {%- set f = (b['from'] | string)[:5] -%}
+            {%- if day.pts[-1][0] == f -%}{%- set day.pts = day.pts[:-1] -%}{%- endif -%}
+            {%- set day.pts = day.pts + [[f, lvl]] -%}
+            {%- set e = (b['to'] | string)[:5] -%}
+            {%- if e not in ['24:00', '23:59', '00:00'] -%}
+              {%- set day.pts = day.pts + [[e, gap]] -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- set ns.raw = ns.raw + [day.pts] -%}
+        {%- endfor -%}
+        {#- Drop points that don't change the level (also across midnight and the week's end). -#}
+        {%- set ns.prev = ns.raw[6][-1][1] -%}
+        {%- for pts in ns.raw -%}
+          {%- set day = namespace(txt=[]) -%}
+          {%- for p in pts -%}
+            {%- if p[1] != ns.prev -%}
+              {#- Written the way the ESP shows times, so unchanged days compare equal. -#}
+              {%- set h = p[0][:2] | int -%}
+              {%- set t = p[0] if tf == '24h' else ((12 if h % 12 == 0 else h % 12) ~ ':' ~ p[0][3:5] ~ ('AM' if h < 12 else 'PM')) -%}
+              {%- set day.txt = day.txt + [t ~ '/' ~ p[1]] -%}
+            {%- endif -%}
+            {%- set ns.prev = p[1] -%}
+          {%- endfor -%}
+          {%- set ns.out = ns.out + [day.txt | join(' ')] -%}
+        {%- endfor -%}
+        {#- The same level all week: one switch point, at Monday midnight. -#}
+        {%- if ns.out | join('') == '' -%}
+          {%- set ns.out = [('00:00' if tf == '24h' else '12:00AM') ~ '/' ~ ns.prev] + ns.out[1:] -%}
+        {%- endif -%}
+        {{ ns.out | tojson }}
+  - repeat:
+      for_each: "{{ range(7) | list }}"
+      sequence:
+        - variables:
+            ent: "{{ day_entities[repeat.item] }}"
+            want: "{{ day_texts[repeat.item] }}"
+        - if:
+            - condition: template
+              value_template: >-
+                {{ states(ent) not in ['unavailable', 'unknown'] and states(ent) != (want | string) }}
+          then:
+            - action: text.set_value
+              target:
+                entity_id: "{{ ent }}"
+              data:
+                value: "{{ want }}"

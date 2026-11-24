@@ -1,0 +1,74 @@
+name: Build
+
+# Compiles the example config and the options test config, with the ESPHome
+# version it was tested with and with the latest one, on every push and once a
+# month, so a breaking ESPHome change shows up here before users run into it.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 4 1 * *"
+  workflow_dispatch:
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install clang-format (the version ESPHome uses)
+        run: pip install "clang-format==13.0.1"
+      - name: C++ formatting
+        run: clang-format --dry-run -Werror components/clevertouch_radio/*.cpp components/clevertouch_radio/*.h tests/*.cpp
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ESPHome
+        run: pip install "esphome==2026.8.0"
+      - name: C++ logic tests
+        run: |
+          mkdir -p build
+          g++ -std=c++17 -Wall -Wextra -Werror -I components tests/test_logic.cpp \
+            components/clevertouch_radio/clevertouch_logic.cpp -o build/test_logic
+          build/test_logic tests/schedule_cases.txt
+      - name: Config validation tests
+        run: python tests/test_config.py
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        esphome: ["2026.8.0", "latest"]
+        config: ["example", "options"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ESPHome ${{ matrix.esphome }}
+        run: |
+          if [ "${{ matrix.esphome }}" = "latest" ]; then pip install esphome; else pip install "esphome==${{ matrix.esphome }}"; fi
+      - name: Prepare
+        run: |
+          mkdir -p build
+          if [ "${{ matrix.config }}" = "example" ]; then
+            sed 's|  - source: github://jbacklun/esphome-clevertouch-radio|  - source:\n      type: local\n      path: ../components|' \
+              example/radiator-controller.yaml > build/config.yaml
+          else
+            cp tests/options.yaml build/config.yaml
+          fi
+          # The example is for ESPHome 2026.11 and later, where devices need a relation.
+          if [ "${{ matrix.esphome }}" = "2026.8.0" ]; then sed -i '/^ *relation: via$/d' build/config.yaml; fi
+          # Dummy values, only so that the config compiles.
+          printf 'wifi_ssid: "ci"\nwifi_password: "cipassword"\napi_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="\nap_password: "cipassword"\n' \
+            > build/secrets.yaml
+      - name: Compile
+        run: esphome compile build/config.yaml

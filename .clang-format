@@ -1,0 +1,21 @@
+# ESPHome's C++ style (https://github.com/esphome/esphome/blob/dev/.clang-format),
+# written as the differences from Google style. CI uses clang-format 13.0.1, the
+# version ESPHome uses.
+BasedOnStyle: Google
+Language: Cpp
+ColumnLimit: 120
+PointerAlignment: Right
+DerivePointerAlignment: false
+SpaceAfterCStyleCast: true
+SpaceAfterTemplateKeyword: false
+SpacesInContainerLiterals: false
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: MultiLine
+AlignEscapedNewlines: DontAlign
+PenaltyReturnTypeOnItsOwnLine: 2000
+IncludeBlocks: Preserve
+SortIncludes: false
+SortUsingDeclarations: false
+TabWidth: 2

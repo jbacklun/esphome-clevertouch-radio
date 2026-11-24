@@ -1,0 +1,89 @@
+# CI only: builds what example/radiator-controller.yaml doesn't. Radiators
+# without sub-devices (the other entity naming path), a double panel,
+# Fahrenheit, 12-hour times, and every option set. Not a config to use.
+
+esphome:
+  name: clevertouch-options-test
+
+esp32:
+  variant: esp32
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  reboot_timeout: 0s
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 0s
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [clevertouch_radio]
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Helsinki
+
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+  miso_pin: GPIO19
+
+cc1101:
+  id: radio
+  cs_pin: GPIO5
+  gdo0_pin: GPIO4
+  frequency: 868.35MHz
+  modulation_type: GFSK
+  symbol_rate: 38383
+  fsk_deviation: 19kHz
+  filter_bandwidth: 203kHz
+  channel: 0
+  packet_mode: true
+  packet_length: 0
+  crc_enable: true
+  whitening: false
+  sync_mode: 30/32
+  sync1: 0xD3
+  sync0: 0x91
+  num_preamble: 2
+
+clevertouch_radio:
+  control_radiators: DEFAULT_OFF
+  temperature_unit: F
+  time_format: 12h
+  listen_after_boot: 0s
+  controller_id: F1ABCDEF
+  reply_delay: 150ms
+  ignore:
+    - F1112233
+  control:
+    name: Radiator control
+  unassigned:
+    internal: true
+  missed_reports:
+    disabled_by_default: true
+  radiators:
+    - name: Office
+      radio_id: F1234567
+      watts: 1250
+      panels: 2
+      comfort: 71
+      eco: 64
+      away: 46
+      min_temperature: 46
+      max_temperature: 77
+      schedule: "mon-fri 6:30am/comfort 8:00am/eco 5:00pm/70 10:30pm/eco; sat,sun 08:00 comfort 23:00 eco"
+      signal:
+        disabled_by_default: true
+    - name: Hall
+      watts: 500
+      eco: 61
+      away: 45

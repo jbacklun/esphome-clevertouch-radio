@@ -1,0 +1,245 @@
+# CleverTouch (Touch E3) radiators over 868 MHz without the E3: an ESP32 with a
+# CC1101 radio module and the clevertouch_radio external component.
+#
+# A complete device config. Commented-out lines like "# level: INFO" are
+# optional settings, shown exactly where they belong: to use one, remove the
+# "# " (the hash and the space after it), so the line lines up with the lines
+# around it. Everything not commented out is needed (or strongly recommended).
+#
+# Needs a secrets.yaml next to this file with: wifi_ssid, wifi_password,
+# api_key, ap_password.
+#
+# Two example radiators: one already paired to an E3 (its radio_id is known),
+# and one to be paired from the ESP (no radio_id yet).
+#
+# CC1101 module (left edge, top to bottom): VCC GND MOSI SCLK MISO GDO2 GDO0 CSN
+#   VCC  -> 3V3 (never 5V/VIN)   GND -> GND
+#   MOSI -> GPIO23   SCLK -> GPIO18   MISO -> GPIO19
+#   GDO0 -> GPIO4    CSN  -> GPIO5    GDO2: not needed, leave unconnected
+# Antenna to ANT. Mount the ESP high (about 1.5 m or more), antenna up; near
+# the floor the signal fades by 5-10 dB.
+
+esphome:
+  name: radiator-controller
+  friendly_name: Radiator controller
+  # Optional: one Home Assistant device per radiator, each in its own area.
+  # Use area names that already exist in Home Assistant, so those are used.
+  # Each radiator below then points to its device with device_id.
+  # "relation: via" is needed from ESPHome 2026.11 on; with an older ESPHome,
+  # remove those lines.
+  areas:
+    - id: area_bedroom
+      name: Bedroom
+    - id: area_living_room
+      name: Living room
+  devices:
+    - id: dev_bedroom
+      name: Bedroom radiator
+      area_id: area_bedroom
+      relation: via
+    - id: dev_living_room
+      name: Living room radiator
+      area_id: area_living_room
+      relation: via
+
+esp32:
+  variant: esp32
+  framework:
+    type: esp-idf
+
+logger:
+  # DEBUG (the default) logs every radio packet: useful when something doesn't
+  # work, or to send a log of a device that isn't supported yet. INFO is quieter.
+  # level: INFO
+
+api:
+  encryption:
+    key: !secret api_key
+  # Keep running (and following the schedules) while Home Assistant is down.
+  # Without this, ESPHome reboots the ESP after 15 min without Home Assistant.
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Keep running through a Wi-Fi outage. Without this, ESPHome reboots the ESP
+  # after 15 min without Wi-Fi, and after such a reboot there is no clock, so
+  # no schedule until the network is back.
+  reboot_timeout: 0s
+  ap:
+    ssid: Radiator-Controller Fallback
+    password: !secret ap_password
+
+captive_portal:
+
+external_components:
+  - source: github://jbacklun/esphome-clevertouch-radio
+    components: [clevertouch_radio]
+    # To stay on a tested release instead of the latest code:
+    # source: github://jbacklun/esphome-clevertouch-radio@v1.0.0
+
+# The schedules need a clock. SNTP keeps working when Home Assistant is down
+# (the "homeassistant" time platform would not).
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Helsinki   # your time zone: the schedules run in local time
+
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+  miso_pin: GPIO19
+
+# The radio settings the Touch E3 uses. Keep them exactly like this; only the
+# two pins depend on your wiring. The component corrects the frequency itself
+# (CC1101 modules' crystals are typically tens of kHz off): it learns the
+# correction from the radiators' packets, applies it 30 s after boot and then
+# narrows the filter to the E3's 102 kHz.
+cc1101:
+  id: radio
+  cs_pin: GPIO5
+  gdo0_pin: GPIO4
+  frequency: 868.35MHz
+  modulation_type: GFSK
+  symbol_rate: 38383
+  fsk_deviation: 19kHz
+  filter_bandwidth: 203kHz
+  channel: 0
+  packet_mode: true
+  packet_length: 0
+  crc_enable: true
+  whitening: false
+  sync_mode: 30/32
+  sync1: 0xD3
+  sync0: 0x91
+  num_preamble: 2
+  magn_target: 33dB
+  max_lna_gain: Default
+  max_dvga_gain: "-1"
+  lna_priority: true
+  carrier_sense_rel_thr: Default
+  carrier_sense_abs_thr: 0
+  hyst_level: Medium
+  wait_time: "16"
+  freeze: Default
+  filter_length_fsk_msk: "16"
+  foc_bs_cs_gate: false
+  foc_pre_k: 3K
+  foc_post_k: K/2
+  foc_limit: BW/4
+  bs_pre_ki: 2KI
+  bs_pre_kp: 3KP
+  bs_post_ki: KI/2
+  bs_post_kp: KP
+  bs_limit: Disabled
+
+clevertouch_radio:
+  # --- Settings directly under clevertouch_radio: --------------------------
+  # Each of these lines sits at the same indentation as "radiators:" below.
+
+  # "Control radiators" right after the very first flash: DEFAULT_ON or
+  # DEFAULT_OFF (the default). While the switch is off, the ESP only listens
+  # and never transmits. Afterwards the switch keeps whatever it was last set
+  # to in Home Assistant, over reboots, power cuts and updates. Even when it's
+  # on, the ESP never transmits while an E3 is heard. (Renaming the switch,
+  # below, makes it forget that state once and start from this setting again.)
+  control_radiators: DEFAULT_ON
+
+  # Unit of the temperatures in this file, in the schedule texts, "Schedule
+  # status", the temperature numbers and the room sensor: C (the default) or F.
+  # With F, write every temperature below in F (defaults then 70 / 63 / 45,
+  # limits 41-86). The climate entity follows Home Assistant's unit system.
+  # temperature_unit: F
+
+  # How times are shown in the schedule texts and "Schedule status": 24h
+  # ("18:15", the default) or 12h ("6:15PM"). Both are always accepted when
+  # typing a schedule. If you use the Schedule helper blueprint, set its
+  # "Time format" to the same.
+  # time_format: 12h
+
+  # How long the ESP only listens after starting up, so that an E3 that is
+  # still running gets noticed before the ESP transmits. 0s if there is no E3
+  # in the house: the ESP then starts answering right away. Default 5min.
+  # listen_after_boot: 0s
+
+  # The controller ID the radiators know this ESP by, for new pairings.
+  # Not needed: it's learned from radiators paired to an E3, or made from the
+  # ESP's MAC address. Set it to pin it (the "Controller ID" sensor shows the
+  # one in use).
+  # controller_id: F1ABCDEF
+
+  # Devices not to show in "Unconfigured devices heard" or log, e.g. the
+  # radiators another ESP controls.
+  # ignore:
+  #   - F1112233
+  #   - F1445566
+
+  # How long to wait before answering a radiator's report. The E3 waits
+  # ~120 ms, so a little longer lets the ESP hear an E3 that answers first (it
+  # then stays silent). Default 200ms, at most 400ms.
+  # reply_delay: 200ms
+
+  # --- The controller's entities (optional) --------------------------------
+  # Rename or hide them with ESPHome's usual entity options (name, icon,
+  # internal, disabled_by_default, ...), each under its own key:
+  # control:
+  #   name: Radiator control          # the "Control radiators" switch
+  # unassigned:
+  #   internal: true                  # don't show "Unconfigured devices heard"
+  # shadow_matches:                   # the three E3 diagnostics are only useful
+  #   disabled_by_default: true       # while an E3 is still running
+  # shadow_mismatches:
+  #   disabled_by_default: true
+  # missed_reports:
+  #   disabled_by_default: true
+
+  # --- The radiators -------------------------------------------------------
+  radiators:
+    # A radiator paired to an E3: its Device ID is known.
+    - name: Bedroom                   # name in the log, and the key of the radiator's
+                                      # stored settings on the ESP: don't change it later
+      device_id: dev_bedroom          # its Home Assistant device (declared at the top)
+      radio_id: F1234567              # the Device ID from the E3 (Home -> room -> "i"),
+                                      # or the "Radio ID" Home Assistant shows after
+                                      # pairing the radiator from the ESP
+      watts: 750                      # rated power: the E3's "Power", or the radiator's
+                                      # label. Used for the energy sensor
+      # panels: 2                     # a double-panel radiator: adds a "Sequential
+                                      # control" switch and adjusts the energy figure
+
+      # Starting temperatures of the presets, used until they're changed in Home
+      # Assistant or on the radiator. Defaults: comfort 21, eco 17, away 7.
+      comfort: 19
+      eco: 16
+      # away: 7                       # frost protection
+
+      # The radiator is never sent a temperature outside these, from Home
+      # Assistant, the schedule or anywhere else (off excepted). A change on the
+      # radiator's own buttons beyond them is set back. Defaults 5 and 30.
+      # min_temperature: 10
+      # max_temperature: 25
+
+      # Optional starting week schedule. It only fills the "Schedule Monday" ...
+      # "Schedule Sunday" texts the first time; after that the schedule is edited
+      # in Home Assistant, and changing this line doesn't overwrite it.
+      # Groups separated by ";", each "days time temperature time temperature ...";
+      # times 07:00 or 7:00AM;
+      # days mon..sun, ranges (mon-fri), lists (sat,sun) or daily; temperature
+      # comfort, eco, off or a number like 20.5. It applies in auto mode.
+      schedule: "mon-fri 06:30 comfort 08:00 eco 17:00 comfort 22:30 eco; sat,sun 08:00 comfort 23:00 eco"
+
+      # Hide or rename this radiator's entities, e.g.:
+      # signal:
+      #   disabled_by_default: true
+      # temperature_offset:
+      #   name: Sensor correction
+
+    # A radiator to pair from the ESP: no radio_id yet. Turn "Control radiators"
+    # on, then this radiator's "Pairing" switch, and put the radiator in pairing
+    # mode within 2 minutes. Afterwards copy its "Radio ID" here as radio_id.
+    - name: Living room
+      device_id: dev_living_room
+      watts: 1000
