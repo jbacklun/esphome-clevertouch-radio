@@ -21,9 +21,11 @@ time, with the Touch E3 unplugged:
 - tested with Home Assistant stopped, across restarts of the ESP and after a
   short power cut. A Wi-Fi outage on its own has not been tested.
 
-Other CleverTouch radiators and brands built on the Touch E3 should work the
-same way, but haven't been tested. Reports are welcome. Double-panel radiators
-haven't been tested either (see [Double-panel radiators](#double-panel-radiators)).
+The Touch E3 is sold under several brand names, for example Purmo, LVI, Radson,
+Finimetal and Vogel & Noot. Other radiators that pair with a Touch E3 should
+work the same way, but only Purmo Yali Digital has been tested. Reports are
+welcome. Double-panel radiators haven't been tested either (see
+[Double-panel radiators](#double-panel-radiators)).
 
 ### Double-panel radiators
 
